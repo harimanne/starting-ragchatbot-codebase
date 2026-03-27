@@ -8,9 +8,16 @@ load_dotenv()
 @dataclass
 class Config:
     """Configuration settings for the RAG system"""
-    # Anthropic API settings
+    # LLM backend: "anthropic" or "ollama"
+    LLM_BACKEND: str = os.getenv("LLM_BACKEND", "ollama")
+
+    # Anthropic API settings (used when LLM_BACKEND=anthropic)
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
+
+    # Ollama settings (used when LLM_BACKEND=ollama)
+    OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3")
     
     # Embedding model settings
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
