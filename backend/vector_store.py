@@ -99,20 +99,28 @@ class VectorStore:
         except Exception as e:
             return SearchResults.empty(f"Search error: {str(e)}")
     
+    # Maximum cosine distance to accept a course name match (lower = stricter).
+    # ChromaDB returns L2-normalised distances; values > 1.0 are poor matches.
+    COURSE_NAME_DISTANCE_THRESHOLD = 1.0
+
     def _resolve_course_name(self, course_name: str) -> Optional[str]:
         """Use vector search to find best matching course by name"""
         try:
             results = self.course_catalog.query(
                 query_texts=[course_name],
-                n_results=1
+                n_results=1,
+                include=["metadatas", "distances"]
             )
-            
+
             if results['documents'][0] and results['metadatas'][0]:
+                distance = results['distances'][0][0]
+                if distance > self.COURSE_NAME_DISTANCE_THRESHOLD:
+                    return None  # No sufficiently close match
                 # Return the title (which is now the ID)
                 return results['metadatas'][0][0]['title']
         except Exception as e:
             print(f"Error resolving course name: {e}")
-        
+
         return None
     
     def _build_filter(self, course_title: Optional[str], lesson_number: Optional[int]) -> Optional[Dict]:
@@ -167,7 +175,7 @@ class VectorStore:
         documents = [chunk.content for chunk in chunks]
         metadatas = [{
             "course_title": chunk.course_title,
-            "lesson_number": chunk.lesson_number,
+            **({"lesson_number": chunk.lesson_number} if chunk.lesson_number is not None else {}),
             "chunk_index": chunk.chunk_index
         } for chunk in chunks]
         # Use title with chunk index for unique IDs
