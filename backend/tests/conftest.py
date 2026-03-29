@@ -5,6 +5,10 @@ import tempfile
 import shutil
 import pytest
 from unittest.mock import MagicMock, patch
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
+from typing import List, Optional
 
 # Add backend directory to sys.path so imports work
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -83,3 +87,80 @@ def seeded_vector_store(empty_vector_store, sample_course, sample_chunks):
     empty_vector_store.add_course_metadata(sample_course)
     empty_vector_store.add_course_content(sample_chunks)
     return empty_vector_store
+
+
+# ---------------------------------------------------------------------------
+# API testing fixtures
+# ---------------------------------------------------------------------------
+
+class _QueryRequest(BaseModel):
+    query: str
+    session_id: Optional[str] = None
+
+class _SourceLink(BaseModel):
+    text: str
+    url: Optional[str] = None
+
+class _QueryResponse(BaseModel):
+    answer: str
+    sources: List[_SourceLink]
+    session_id: str
+
+class _CourseStats(BaseModel):
+    total_courses: int
+    course_titles: List[str]
+
+
+def _build_test_app(rag_system) -> FastAPI:
+    """Build a FastAPI app with the same API routes as app.py but no static files mount."""
+    app = FastAPI(title="Test RAG API")
+
+    @app.post("/api/query", response_model=_QueryResponse)
+    async def query_documents(request: _QueryRequest):
+        try:
+            session_id = request.session_id
+            if not session_id:
+                session_id = rag_system.session_manager.create_session()
+            answer, sources = rag_system.query(request.query, session_id)
+            return _QueryResponse(answer=answer, sources=sources, session_id=session_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.delete("/api/session/{session_id}")
+    async def delete_session(session_id: str):
+        rag_system.session_manager.clear_session(session_id)
+        return {"status": "cleared"}
+
+    @app.get("/api/courses", response_model=_CourseStats)
+    async def get_course_stats():
+        try:
+            analytics = rag_system.get_course_analytics()
+            return _CourseStats(
+                total_courses=analytics["total_courses"],
+                course_titles=analytics["course_titles"],
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return app
+
+
+@pytest.fixture
+def mock_rag_system():
+    """A MagicMock RAGSystem pre-configured with sensible return values."""
+    mock = MagicMock()
+    mock.session_manager.create_session.return_value = "test-session-abc"
+    mock.query.return_value = ("Test answer about RAG.", [])
+    mock.get_course_analytics.return_value = {
+        "total_courses": 2,
+        "course_titles": ["Introduction to RAG", "Building Pipelines"],
+    }
+    return mock
+
+
+@pytest.fixture
+def api_client(mock_rag_system):
+    """A TestClient for the test FastAPI app, backed by a mocked RAGSystem."""
+    app = _build_test_app(mock_rag_system)
+    with TestClient(app) as client:
+        yield client
