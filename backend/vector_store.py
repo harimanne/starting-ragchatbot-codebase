@@ -125,7 +125,7 @@ class VectorStore:
                 include=["metadatas", "distances"],
             )
 
-            if results["documents"][0] and results["metadatas"][0]:
+            if results["metadatas"][0]:
                 distance = results["distances"][0][0]
                 if distance > self.COURSE_NAME_DISTANCE_THRESHOLD:
                     return None  # No sufficiently close match
