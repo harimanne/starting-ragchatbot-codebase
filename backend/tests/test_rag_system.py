@@ -1,13 +1,14 @@
 """Tests verifying RAGSystem.query() orchestrates components correctly."""
+
 import pytest
 from unittest.mock import MagicMock, patch
 from rag_system import RAGSystem
 from search_tools import CourseSearchTool, ToolManager
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_config(chroma_path: str):
     """Return a minimal config-like object for RAGSystem."""
@@ -30,6 +31,7 @@ def _make_config(chroma_path: str):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def rag(temp_dir):
     """A fully initialised RAGSystem backed by a temp ChromaDB."""
@@ -49,25 +51,32 @@ def rag_seeded(rag, sample_course, sample_chunks):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestQueryReturnShape:
     """RAGSystem.query() must always return (str, list)."""
 
     def test_query_returns_tuple(self, rag):
-        with patch.object(rag.ai_generator, "generate_response", return_value="Some answer"):
+        with patch.object(
+            rag.ai_generator, "generate_response", return_value="Some answer"
+        ):
             result = rag.query("What is RAG?")
 
         assert isinstance(result, tuple)
         assert len(result) == 2
 
     def test_query_returns_string_and_list(self, rag):
-        with patch.object(rag.ai_generator, "generate_response", return_value="Some answer"):
+        with patch.object(
+            rag.ai_generator, "generate_response", return_value="Some answer"
+        ):
             response, sources = rag.query("What is RAG?")
 
         assert isinstance(response, str)
         assert isinstance(sources, list)
 
     def test_query_response_matches_generator_output(self, rag):
-        with patch.object(rag.ai_generator, "generate_response", return_value="Expected response"):
+        with patch.object(
+            rag.ai_generator, "generate_response", return_value="Expected response"
+        ):
             response, _ = rag.query("test question")
 
         assert response == "Expected response"
@@ -82,11 +91,16 @@ class TestQueryWithToolSources:
         pre-seeding last_sources on the search tool, then calling query().
         """
         expected_sources = [
-            {"text": "Introduction to RAG - Lesson 1", "url": "https://example.com/rag-course/lesson/1"}
+            {
+                "text": "Introduction to RAG - Lesson 1",
+                "url": "https://example.com/rag-course/lesson/1",
+            }
         ]
         rag_seeded.search_tool.last_sources = expected_sources
 
-        with patch.object(rag_seeded.ai_generator, "generate_response", return_value="Answer"):
+        with patch.object(
+            rag_seeded.ai_generator, "generate_response", return_value="Answer"
+        ):
             _, sources = rag_seeded.query("What is RAG?")
 
         assert sources == expected_sources
@@ -95,7 +109,9 @@ class TestQueryWithToolSources:
         """last_sources on the search tool must be cleared after each query."""
         rag_seeded.search_tool.last_sources = [{"text": "Stale source", "url": None}]
 
-        with patch.object(rag_seeded.ai_generator, "generate_response", return_value="Answer"):
+        with patch.object(
+            rag_seeded.ai_generator, "generate_response", return_value="Answer"
+        ):
             rag_seeded.query("What is RAG?")
 
         assert rag_seeded.search_tool.last_sources == []
@@ -111,8 +127,12 @@ class TestQueryWithEmptyStore:
         This will fail if RAGSystem.query() has no exception handling and
         the tool / vector store raises an uncaught error.
         """
-        with patch.object(rag.ai_generator, "generate_response", return_value="No results found."):
-            response, sources = rag.query("What is the difference between RAG and fine-tuning?")
+        with patch.object(
+            rag.ai_generator, "generate_response", return_value="No results found."
+        ):
+            response, sources = rag.query(
+                "What is the difference between RAG and fine-tuning?"
+            )
 
         assert isinstance(response, str)
         assert isinstance(sources, list)
@@ -182,11 +202,15 @@ class TestEndToEndQueryWithRealVectorStore:
         """generate_response must be called with the registered tool definitions."""
         captured = {}
 
-        def mock_generate(query, conversation_history=None, tools=None, tool_manager=None):
+        def mock_generate(
+            query, conversation_history=None, tools=None, tool_manager=None
+        ):
             captured["tools"] = tools
             return "answer"
 
-        with patch.object(rag.ai_generator, "generate_response", side_effect=mock_generate):
+        with patch.object(
+            rag.ai_generator, "generate_response", side_effect=mock_generate
+        ):
             rag.query("test")
 
         assert captured["tools"] is not None

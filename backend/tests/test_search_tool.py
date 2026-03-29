@@ -1,11 +1,12 @@
 """Tests for CourseSearchTool.execute() and related VectorStore behaviour."""
+
 import pytest
 from search_tools import CourseSearchTool
-
 
 # ---------------------------------------------------------------------------
 # Basic query behaviour
 # ---------------------------------------------------------------------------
+
 
 class TestCourseSearchToolExecute:
     """Tests covering the happy-path and common edge-cases of execute()."""
@@ -20,7 +21,9 @@ class TestCourseSearchToolExecute:
         # The course title must appear in the formatted header
         assert "Introduction to RAG" in result
 
-    def test_execute_empty_collection_returns_no_results_message(self, empty_vector_store):
+    def test_execute_empty_collection_returns_no_results_message(
+        self, empty_vector_store
+    ):
         """Querying an empty store must return a human-readable message, not raise."""
         tool = CourseSearchTool(empty_vector_store)
         result = tool.execute(query="What is RAG?")
@@ -36,13 +39,20 @@ class TestCourseSearchToolExecute:
         assert isinstance(result, str)
         assert "Introduction to RAG" in result
 
-    def test_execute_with_nonexistent_course_returns_no_results(self, seeded_vector_store):
+    def test_execute_with_nonexistent_course_returns_no_results(
+        self, seeded_vector_store
+    ):
         """Filtering by an unknown course name returns an informative message."""
         tool = CourseSearchTool(seeded_vector_store)
-        result = tool.execute(query="deep learning", course_name="Nonexistent Course XYZ")
+        result = tool.execute(
+            query="deep learning", course_name="Nonexistent Course XYZ"
+        )
 
         assert isinstance(result, str)
-        assert "No course found matching" in result or "No relevant content found" in result
+        assert (
+            "No course found matching" in result
+            or "No relevant content found" in result
+        )
 
     def test_execute_with_lesson_filter(self, seeded_vector_store):
         """Filtering by lesson number returns only content from that lesson."""
@@ -78,6 +88,7 @@ class TestCourseSearchToolExecute:
 # Bug probes — these tests are designed to expose known suspect behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestNoneLessonNumberBug:
     """
     ChromaDB 1.0.x rejects None metadata values.
@@ -98,6 +109,7 @@ class TestNoneLessonNumberBug:
 
         # If we get here, verify the chunk is actually queryable
         from search_tools import CourseSearchTool
+
         tool = CourseSearchTool(empty_vector_store)
         result = tool.execute(query="chunk with no lesson")
         assert isinstance(result, str)

@@ -1,4 +1,5 @@
 """Shared fixtures for all tests."""
+
 import sys
 import os
 import tempfile
@@ -21,8 +22,16 @@ def sample_course():
         course_link="https://example.com/rag-course",
         instructor="Jane Smith",
         lessons=[
-            Lesson(lesson_number=1, title="What is RAG?", lesson_link="https://example.com/rag-course/lesson/1"),
-            Lesson(lesson_number=2, title="Building Pipelines", lesson_link="https://example.com/rag-course/lesson/2"),
+            Lesson(
+                lesson_number=1,
+                title="What is RAG?",
+                lesson_link="https://example.com/rag-course/lesson/1",
+            ),
+            Lesson(
+                lesson_number=2,
+                title="Building Pipelines",
+                lesson_link="https://example.com/rag-course/lesson/2",
+            ),
         ],
     )
 

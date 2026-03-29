@@ -35,8 +35,14 @@ All responses must be:
 Provide only the direct answer to what was asked.
 """
 
-    def __init__(self, api_key: str, model: str, backend: str = "anthropic",
-                 ollama_url: str = "http://localhost:11434/v1", ollama_model: str = "llama3.1"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        backend: str = "anthropic",
+        ollama_url: str = "http://localhost:11434/v1",
+        ollama_model: str = "llama3.1",
+    ):
         self.backend = backend
         self.model = model if backend == "anthropic" else ollama_model
 
@@ -45,27 +51,31 @@ Provide only the direct answer to what was asked.
         else:
             self.ollama_client = OpenAI(base_url=ollama_url, api_key="ollama")
 
-        self.base_params = {
-            "model": self.model,
-            "temperature": 0,
-            "max_tokens": 800
-        }
+        self.base_params = {"model": self.model, "temperature": 0, "max_tokens": 800}
 
-    def generate_response(self, query: str,
-                          conversation_history: Optional[str] = None,
-                          tools: Optional[List] = None,
-                          tool_manager=None) -> str:
+    def generate_response(
+        self,
+        query: str,
+        conversation_history: Optional[str] = None,
+        tools: Optional[List] = None,
+        tool_manager=None,
+    ) -> str:
         if self.backend == "anthropic":
-            return self._generate_anthropic(query, conversation_history, tools, tool_manager)
+            return self._generate_anthropic(
+                query, conversation_history, tools, tool_manager
+            )
         else:
-            return self._generate_ollama(query, conversation_history, tools, tool_manager)
+            return self._generate_ollama(
+                query, conversation_history, tools, tool_manager
+            )
 
     # ── Anthropic path ───────────────────────────────────────────────────────
 
     def _generate_anthropic(self, query, conversation_history, tools, tool_manager):
         system_content = (
             f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
-            if conversation_history else self.SYSTEM_PROMPT
+            if conversation_history
+            else self.SYSTEM_PROMPT
         )
         messages = [{"role": "user", "content": query}]
         return self._run_agentic_loop(messages, system_content, tools, tool_manager)
@@ -94,11 +104,9 @@ Provide only the direct answer to what was asked.
                     result = tool_manager.execute_tool(block.name, **block.input)
                 except Exception as e:
                     result = f"Tool execution failed: {str(e)}"
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result
-                })
+                tool_results.append(
+                    {"type": "tool_result", "tool_use_id": block.id, "content": result}
+                )
             messages.append({"role": "user", "content": tool_results})
 
         # max_rounds tool executions done — synthesize without tools
@@ -119,14 +127,20 @@ Provide only the direct answer to what was asked.
     def _generate_ollama(self, query, conversation_history, tools, tool_manager):
         system_content = (
             f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
-            if conversation_history else self.SYSTEM_PROMPT
+            if conversation_history
+            else self.SYSTEM_PROMPT
         )
         messages = [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": query}
+            {"role": "user", "content": query},
         ]
 
-        kwargs = {"model": self.model, "messages": messages, "temperature": 0, "max_tokens": 800}
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": 800,
+        }
         if tools:
             kwargs["tools"] = self._to_openai_tools(tools)
             kwargs["tool_choice"] = "auto"
@@ -144,17 +158,10 @@ Provide only the direct answer to what was asked.
         for tc in choice.message.tool_calls:
             args = json.loads(tc.function.arguments)
             result = tool_manager.execute_tool(tc.function.name, **args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result
-            })
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
         final_response = self.ollama_client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0,
-            max_tokens=800
+            model=self.model, messages=messages, temperature=0, max_tokens=800
         )
         return final_response.choices[0].message.content
 
@@ -163,12 +170,14 @@ Provide only the direct answer to what was asked.
         """Convert Anthropic tool format to OpenAI/Ollama format."""
         openai_tools = []
         for t in anthropic_tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": t.get("description", ""),
-                    "parameters": t.get("input_schema", {})
+            openai_tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t.get("input_schema", {}),
+                    },
                 }
-            })
+            )
         return openai_tools

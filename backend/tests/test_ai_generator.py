@@ -1,12 +1,13 @@
 """Tests verifying that AIGenerator correctly detects and executes tool calls."""
+
 import pytest
 from unittest.mock import MagicMock, patch, call
 from ai_generator import AIGenerator
 
-
 # ---------------------------------------------------------------------------
 # Helpers to build mock Anthropic response objects
 # ---------------------------------------------------------------------------
+
 
 def _make_text_response(text: str):
     """Simulate a plain-text (non-tool) Anthropic response."""
@@ -20,7 +21,9 @@ def _make_text_response(text: str):
     return response
 
 
-def _make_tool_use_response(tool_name: str, tool_input: dict, tool_id: str = "tool_abc123"):
+def _make_tool_use_response(
+    tool_name: str, tool_input: dict, tool_id: str = "tool_abc123"
+):
     """Simulate an Anthropic response that requests a tool call."""
     tool_block = MagicMock()
     tool_block.type = "tool_use"
@@ -42,6 +45,7 @@ def _make_final_text_response(text: str):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def tool_definitions():
@@ -68,20 +72,29 @@ def mock_tool_manager():
 @pytest.fixture
 def generator():
     """AIGenerator wired to the anthropic backend with a dummy key."""
-    return AIGenerator(api_key="test-key", model="claude-sonnet-4-5", backend="anthropic")
+    return AIGenerator(
+        api_key="test-key", model="claude-sonnet-4-5", backend="anthropic"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestNoToolForGeneralQuestion:
     """When Claude returns a plain text response, no tool should be executed."""
 
-    def test_returns_text_directly(self, generator, tool_definitions, mock_tool_manager):
-        text_response = _make_text_response("The sky is blue because of Rayleigh scattering.")
+    def test_returns_text_directly(
+        self, generator, tool_definitions, mock_tool_manager
+    ):
+        text_response = _make_text_response(
+            "The sky is blue because of Rayleigh scattering."
+        )
 
-        with patch.object(generator.anthropic_client.messages, "create", return_value=text_response):
+        with patch.object(
+            generator.anthropic_client.messages, "create", return_value=text_response
+        ):
             result = generator.generate_response(
                 query="Why is the sky blue?",
                 tools=tool_definitions,
@@ -142,25 +155,30 @@ class TestToolCalledForContentQuestion:
                 return tool_response
             return final_response
 
-        with patch.object(generator.anthropic_client.messages, "create", side_effect=capture_create):
+        with patch.object(
+            generator.anthropic_client.messages, "create", side_effect=capture_create
+        ):
             generator.generate_response(
                 query="What is RAG?",
                 tools=tool_definitions,
                 tool_manager=mock_tool_manager,
             )
 
-        assert len(captured_calls) == 2, "Expected exactly two API calls (initial + follow-up)"
+        assert (
+            len(captured_calls) == 2
+        ), "Expected exactly two API calls (initial + follow-up)"
 
         # The second call's messages must contain the tool_result block
         second_messages = captured_calls[1]["messages"]
         tool_result_messages = [
-            m for m in second_messages
+            m
+            for m in second_messages
             if isinstance(m.get("content"), list)
             and any(b.get("type") == "tool_result" for b in m["content"])
         ]
-        assert len(tool_result_messages) == 1, (
-            "Follow-up call must include a user message with tool_result content"
-        )
+        assert (
+            len(tool_result_messages) == 1
+        ), "Follow-up call must include a user message with tool_result content"
 
         tool_result_block = tool_result_messages[0]["content"][0]
         assert tool_result_block["tool_use_id"] == "tool_xyz"
@@ -177,7 +195,9 @@ class TestToolCalledWithoutToolManager:
             tool_input={"query": "RAG"},
         )
 
-        with patch.object(generator.anthropic_client.messages, "create", return_value=tool_response):
+        with patch.object(
+            generator.anthropic_client.messages, "create", return_value=tool_response
+        ):
             result = generator.generate_response(
                 query="RAG question",
                 tools=tool_definitions,
@@ -190,7 +210,9 @@ class TestToolCalledWithoutToolManager:
 class TestAPICallParameters:
     """Verify correct parameters are passed to the Anthropic API."""
 
-    def test_tools_included_when_provided(self, generator, tool_definitions, mock_tool_manager):
+    def test_tools_included_when_provided(
+        self, generator, tool_definitions, mock_tool_manager
+    ):
         text_response = _make_text_response("answer")
 
         with patch.object(
@@ -222,7 +244,9 @@ class TestAPICallParameters:
         call_kwargs = mock_create.call_args[1]
         assert "tools" not in call_kwargs
 
-    def test_conversation_history_appended_to_system(self, generator, mock_tool_manager):
+    def test_conversation_history_appended_to_system(
+        self, generator, mock_tool_manager
+    ):
         text_response = _make_text_response("answer")
 
         with patch.object(
@@ -285,9 +309,13 @@ class TestTwoRoundToolCalling:
 
         def capture_create(**kwargs):
             captured_calls.append(kwargs)
-            return [tool_response_1, tool_response_2, final_response][len(captured_calls) - 1]
+            return [tool_response_1, tool_response_2, final_response][
+                len(captured_calls) - 1
+            ]
 
-        with patch.object(generator.anthropic_client.messages, "create", side_effect=capture_create):
+        with patch.object(
+            generator.anthropic_client.messages, "create", side_effect=capture_create
+        ):
             generator.generate_response(
                 query="multi-part query",
                 tools=tool_definitions,
@@ -299,7 +327,8 @@ class TestTwoRoundToolCalling:
 
         # Both tool_result blocks must be in the 3rd call's messages
         all_tool_results = [
-            b for m in third_messages
+            b
+            for m in third_messages
             if isinstance(m.get("content"), list)
             for b in m["content"]
             if isinstance(b, dict) and b.get("type") == "tool_result"
@@ -337,9 +366,7 @@ class TestTwoRoundToolCalling:
 class TestToolExecutionError:
     """Tool execution failures must be handled gracefully."""
 
-    def test_tool_execution_error_does_not_raise(
-        self, generator, tool_definitions
-    ):
+    def test_tool_execution_error_does_not_raise(self, generator, tool_definitions):
         mock_mgr = MagicMock()
         mock_mgr.execute_tool.side_effect = Exception("DB unavailable")
 
@@ -378,7 +405,9 @@ class TestToolExecutionError:
             captured_calls.append(kwargs)
             return tool_response if len(captured_calls) == 1 else final_response
 
-        with patch.object(generator.anthropic_client.messages, "create", side_effect=capture_create):
+        with patch.object(
+            generator.anthropic_client.messages, "create", side_effect=capture_create
+        ):
             generator.generate_response(
                 query="RAG question",
                 tools=tool_definitions,
