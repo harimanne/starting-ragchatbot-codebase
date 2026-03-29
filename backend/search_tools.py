@@ -155,6 +155,31 @@ class CourseOutlineTool(Tool):
         return "\n".join(lines)
 
 
+class ListCoursesTool(Tool):
+    """Tool for listing all available courses in the system"""
+
+    def __init__(self, vector_store: VectorStore):
+        self.store = vector_store
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        return {
+            "name": "list_courses",
+            "description": "List all available courses in the system. Use this when the user asks what courses are available, what topics are covered, or wants to browse the course catalog.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+    def execute(self) -> str:
+        titles = self.store.get_existing_course_titles()
+        if not titles:
+            return "No courses are currently available in the system."
+        lines = [f"{i + 1}. {title}" for i, title in enumerate(titles)]
+        return "Available courses:\n" + "\n".join(lines)
+
+
 class ToolManager:
     """Manages available tools for the AI"""
     

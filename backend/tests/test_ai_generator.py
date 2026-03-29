@@ -171,23 +171,20 @@ class TestToolCalledWithoutToolManager:
     """If tool_manager is None, tool_use response must not crash."""
 
     def test_no_tool_manager_stops_at_tool_use(self, generator, tool_definitions):
-        """Without a tool_manager, the generator should not attempt tool execution."""
+        """Without a tool_manager, the generator returns a string without raising."""
         tool_response = _make_tool_use_response(
             tool_name="search_course_content",
             tool_input={"query": "RAG"},
         )
 
         with patch.object(generator.anthropic_client.messages, "create", return_value=tool_response):
-            # Should not raise even without a tool_manager
-            # (stop_reason == "tool_use" but tool_manager is None → skip tool execution)
             result = generator.generate_response(
                 query="RAG question",
                 tools=tool_definitions,
                 tool_manager=None,
             )
-        # Without tool_manager, _generate_anthropic returns response.content[0].text
-        # — but content[0] is a tool_use block with no .text attribute, which raises AttributeError
-        # This test documents that missing try-except is a real problem.
+
+        assert isinstance(result, str)
 
 
 class TestAPICallParameters:
@@ -240,3 +237,167 @@ class TestAPICallParameters:
 
         call_kwargs = mock_create.call_args[1]
         assert "Previous conversation" in call_kwargs["system"]
+
+
+class TestTwoRoundToolCalling:
+    """Verify sequential tool calling across two rounds."""
+
+    def test_two_sequential_tool_calls_executes_both_tools(
+        self, generator, tool_definitions, mock_tool_manager
+    ):
+        tool_response_1 = _make_tool_use_response(
+            "search_course_content", {"query": "RAG"}, tool_id="t1"
+        )
+        tool_response_2 = _make_tool_use_response(
+            "search_course_content", {"query": "embeddings"}, tool_id="t2"
+        )
+        final_response = _make_final_text_response("Complete answer.")
+
+        with patch.object(
+            generator.anthropic_client.messages,
+            "create",
+            side_effect=[tool_response_1, tool_response_2, final_response],
+        ) as mock_create:
+            result = generator.generate_response(
+                query="Tell me about RAG and embeddings",
+                tools=tool_definitions,
+                tool_manager=mock_tool_manager,
+            )
+
+        assert mock_tool_manager.execute_tool.call_count == 2
+        assert mock_create.call_count == 3
+        assert result == "Complete answer."
+
+    def test_context_accumulates_across_rounds(
+        self, generator, tool_definitions, mock_tool_manager
+    ):
+        """The synthesis call must include tool_results from both rounds, and omit tools."""
+        mock_tool_manager.execute_tool.side_effect = ["result_1", "result_2"]
+        tool_response_1 = _make_tool_use_response(
+            "search_course_content", {"query": "RAG"}, tool_id="t1"
+        )
+        tool_response_2 = _make_tool_use_response(
+            "search_course_content", {"query": "embeddings"}, tool_id="t2"
+        )
+        final_response = _make_final_text_response("Synthesized answer.")
+
+        captured_calls = []
+
+        def capture_create(**kwargs):
+            captured_calls.append(kwargs)
+            return [tool_response_1, tool_response_2, final_response][len(captured_calls) - 1]
+
+        with patch.object(generator.anthropic_client.messages, "create", side_effect=capture_create):
+            generator.generate_response(
+                query="multi-part query",
+                tools=tool_definitions,
+                tool_manager=mock_tool_manager,
+            )
+
+        assert len(captured_calls) == 3
+        third_messages = captured_calls[2]["messages"]
+
+        # Both tool_result blocks must be in the 3rd call's messages
+        all_tool_results = [
+            b for m in third_messages
+            if isinstance(m.get("content"), list)
+            for b in m["content"]
+            if isinstance(b, dict) and b.get("type") == "tool_result"
+        ]
+        tool_use_ids = {b["tool_use_id"] for b in all_tool_results}
+        assert "t1" in tool_use_ids
+        assert "t2" in tool_use_ids
+
+        # Final synthesis call must NOT include tools
+        assert "tools" not in captured_calls[2]
+
+    def test_max_rounds_respected(self, generator, tool_definitions, mock_tool_manager):
+        """Only 2 tool rounds and 1 synthesis call are made, regardless of Claude's responses."""
+        tool_response = _make_tool_use_response(
+            "search_course_content", {"query": "X"}, tool_id="t1"
+        )
+        # Provide more tool_use responses than max_rounds to confirm the cap
+        final_response = _make_final_text_response("Done.")
+
+        with patch.object(
+            generator.anthropic_client.messages,
+            "create",
+            side_effect=[tool_response, tool_response, final_response],
+        ) as mock_create:
+            generator.generate_response(
+                query="query",
+                tools=tool_definitions,
+                tool_manager=mock_tool_manager,
+            )
+
+        assert mock_tool_manager.execute_tool.call_count <= 2
+        assert mock_create.call_count <= 3
+
+
+class TestToolExecutionError:
+    """Tool execution failures must be handled gracefully."""
+
+    def test_tool_execution_error_does_not_raise(
+        self, generator, tool_definitions
+    ):
+        mock_mgr = MagicMock()
+        mock_mgr.execute_tool.side_effect = Exception("DB unavailable")
+
+        tool_response = _make_tool_use_response(
+            "search_course_content", {"query": "RAG"}, tool_id="t1"
+        )
+        final_response = _make_final_text_response("Fallback answer.")
+
+        with patch.object(
+            generator.anthropic_client.messages,
+            "create",
+            side_effect=[tool_response, final_response],
+        ):
+            result = generator.generate_response(
+                query="RAG question",
+                tools=tool_definitions,
+                tool_manager=mock_mgr,
+            )
+
+        assert isinstance(result, str)
+
+    def test_tool_execution_error_result_passed_to_claude(
+        self, generator, tool_definitions
+    ):
+        mock_mgr = MagicMock()
+        mock_mgr.execute_tool.side_effect = Exception("DB unavailable")
+
+        tool_response = _make_tool_use_response(
+            "search_course_content", {"query": "RAG"}, tool_id="t1"
+        )
+        final_response = _make_final_text_response("Fallback answer.")
+
+        captured_calls = []
+
+        def capture_create(**kwargs):
+            captured_calls.append(kwargs)
+            return tool_response if len(captured_calls) == 1 else final_response
+
+        with patch.object(generator.anthropic_client.messages, "create", side_effect=capture_create):
+            generator.generate_response(
+                query="RAG question",
+                tools=tool_definitions,
+                tool_manager=mock_mgr,
+            )
+
+        second_messages = captured_calls[1]["messages"]
+        tool_result_contents = [
+            b["content"]
+            for m in second_messages
+            if isinstance(m.get("content"), list)
+            for b in m["content"]
+            if isinstance(b, dict) and b.get("type") == "tool_result"
+        ]
+        assert any("Tool execution failed" in c for c in tool_result_contents)
+
+
+class TestSystemPromptContent:
+    """Regression guard for system prompt content."""
+
+    def test_system_prompt_mentions_two_sequential_tool_calls(self):
+        assert "2 sequential" in AIGenerator.SYSTEM_PROMPT

@@ -10,9 +10,11 @@ class AIGenerator:
     SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to a comprehensive search tool for course information.
 
 Tool Usage:
+- Use `list_courses` when the user asks what courses are available, what topics are covered, or wants to browse the catalog
 - Use `search_course_content` for questions about specific course content or detailed educational materials
 - Use `get_course_outline` for any question asking for a course outline, structure, or lesson list
-- **One tool call per query maximum**
+- **Up to 2 sequential tool calls per query**: You may call a tool, observe its result, then call a second tool if needed before answering
+- After receiving tool results, synthesize all gathered information into a single, comprehensive response
 - Synthesize tool results into accurate, fact-based responses
 - If a tool yields no results, state this clearly without offering alternatives
 
@@ -58,51 +60,59 @@ Provide only the direct answer to what was asked.
         else:
             return self._generate_ollama(query, conversation_history, tools, tool_manager)
 
-    # ── Anthropic path (unchanged logic) ────────────────────────────────────
+    # ── Anthropic path ───────────────────────────────────────────────────────
 
     def _generate_anthropic(self, query, conversation_history, tools, tool_manager):
         system_content = (
             f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
             if conversation_history else self.SYSTEM_PROMPT
         )
-        api_params = {
-            **self.base_params,
-            "messages": [{"role": "user", "content": query}],
-            "system": system_content
-        }
-        if tools:
-            api_params["tools"] = tools
-            api_params["tool_choice"] = {"type": "auto"}
+        messages = [{"role": "user", "content": query}]
+        return self._run_agentic_loop(messages, system_content, tools, tool_manager)
 
-        response = self.anthropic_client.messages.create(**api_params)
+    def _run_agentic_loop(self, messages, system, tools, tool_manager, max_rounds=2):
+        for _ in range(max_rounds):
+            api_params = {**self.base_params, "messages": messages, "system": system}
+            if tools:
+                api_params["tools"] = tools
+                api_params["tool_choice"] = {"type": "auto"}
 
-        if response.stop_reason == "tool_use" and tool_manager:
-            return self._handle_anthropic_tool_execution(response, api_params, tool_manager)
-        return response.content[0].text
+            response = self.anthropic_client.messages.create(**api_params)
 
-    def _handle_anthropic_tool_execution(self, initial_response, base_params, tool_manager):
-        messages = base_params["messages"].copy()
-        messages.append({"role": "assistant", "content": initial_response.content})
+            if response.stop_reason != "tool_use" or tool_manager is None:
+                return self._extract_text(response)
 
-        tool_results = []
-        for block in initial_response.content:
-            if block.type == "tool_use":
-                result = tool_manager.execute_tool(block.name, **block.input)
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            if not tool_blocks:
+                return self._extract_text(response)
+
+            messages.append({"role": "assistant", "content": response.content})
+
+            tool_results = []
+            for block in tool_blocks:
+                try:
+                    result = tool_manager.execute_tool(block.name, **block.input)
+                except Exception as e:
+                    result = f"Tool execution failed: {str(e)}"
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": result
                 })
-
-        if tool_results:
             messages.append({"role": "user", "content": tool_results})
 
-        final_response = self.anthropic_client.messages.create(**{
-            **self.base_params,
-            "messages": messages,
-            "system": base_params["system"]
-        })
-        return final_response.content[0].text
+        # max_rounds tool executions done — synthesize without tools
+        final_response = self.anthropic_client.messages.create(
+            **{**self.base_params, "messages": messages, "system": system}
+        )
+        return self._extract_text(final_response)
+
+    @staticmethod
+    def _extract_text(response) -> str:
+        for block in response.content:
+            if block.type == "text":
+                return block.text
+        return ""
 
     # ── Ollama path ──────────────────────────────────────────────────────────
 
